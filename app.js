@@ -33,31 +33,43 @@ const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return ne
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const timeStr = (d) => pad(d.getHours()) + ':' + pad(d.getMinutes());
 const haptic = () => { if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged(); };
+const todayIso = () => isoDate(new Date());
+const PRIVACY = tg ? 'Записи видишь только ты. Они хранятся в твоём Telegram.' : 'Записи видишь только ты. Они хранятся на этом устройстве.';
 
-const emptyDay = () => ({ text: '', mood: null, spheres: {}, insight: '', reflection: ['', '', ''], moon: '' });
+const parse = (raw, fallback) => { try { return Object.assign(fallback, JSON.parse(raw || '{}')); } catch (e) { return fallback; } };
 
-async function loadDay(iso) {
-  const raw = await Store.get('d_' + iso);
-  if (!raw) return emptyDay();
-  try { return Object.assign(emptyDay(), JSON.parse(raw)); } catch (e) { return emptyDay(); }
-}
+const emptyDay = () => ({ text: '', mood: null, insight: '', reflection: ['', '', ''], moon: '' });
+const loadDay = async (iso) => parse(await Store.get('d_' + iso), emptyDay());
 const saveDay = (iso, data) => Store.set('d_' + iso, JSON.stringify(data));
+
+const emptyYear = () => ({ sankalpa: '', letter: '', wheel: {} });
+const loadYear = async (y) => parse(await Store.get('y_' + y), emptyYear());
+const saveYear = (y, data) => Store.set('y_' + y, JSON.stringify(data));
+
+// Отметки состояния за месяц: { 'YYYY-MM-DD': mood }.
+async function monthMoods(y, m) {
+  const daysIn = new Date(y, m, 0).getDate();
+  const keys = [];
+  for (let d = 1; d <= daysIn; d++) keys.push('d_' + y + '-' + pad(m) + '-' + pad(d));
+  const raw = await Store.getMany(keys);
+  const out = {};
+  keys.forEach((k) => {
+    const v = parse(raw[k], {});
+    if (v.mood !== null && v.mood !== undefined) out[k.slice(2)] = v.mood;
+  });
+  return out;
+}
 
 function dayMeta(date) {
   const m = Moon.info(date);
-  const month = date.getMonth();
-  const cycleIdx = Math.floor(month / 3);
-  const cycleStart = new Date(date.getFullYear(), cycleIdx * 3, 1, 12);
-  const cycleEnd = new Date(date.getFullYear(), cycleIdx * 3 + 3, 0, 12);
-  const cycleDay = Moon.dayIndex(date) - Moon.dayIndex(cycleStart) + 1;
-  const cycleLen = Moon.dayIndex(cycleEnd) - Moon.dayIndex(cycleStart) + 1;
-  return {
-    moon: m,
-    hint: Content.hints[Math.min(30, m.lunarDay)] || Content.hints[1],
-    principle: Content.principles[month],
-    cycle: { n: cycleIdx + 1, name: Content.cycles[cycleIdx].name, day: cycleDay, len: cycleLen }
-  };
+  return { moon: m, hint: Content.hints[Math.min(30, m.lunarDay)] || Content.hints[1] };
 }
+
+// Пожелание зависит от состояния и сдвигается каждый день, так подряд оно не повторяется.
+const wishFor = (mood, date) => {
+  const list = Content.wishes[mood];
+  return list[Moon.dayIndex(date) % list.length];
+};
 
 const moonIcon = (phase, size) => {
   const s = size || 40;
@@ -69,97 +81,17 @@ const moonIcon = (phase, size) => {
 
 // ---------- Экраны ----------
 
-async function viewToday() {
-  const now = new Date();
-  now.setHours(12, 0, 0, 0);
-  const iso = isoDate(now);
-  const meta = dayMeta(now);
-  const data = await loadDay(iso);
-  const moods = Content.moods.map((label, i) =>
-    `<button type="button" class="mood m${i} ${data.mood === i ? 'on' : ''}" data-mood="${i}"><i></i>${label}</button>`).join('');
-  return `
-    <header class="cover">
-      <div class="cover-title">БлагоЛуна</div>
-      ${moonIcon(meta.moon.phase, 44)}
-    </header>
-    <main class="page" data-day="${iso}">
-      <section class="today-card">
-        <span class="eyebrow">Сегодня · ${now.getDate()} ${Content.monthsGen[now.getMonth()]}</span>
-        <span class="today-ld">${meta.moon.lunarDay}-й лунный день</span>
-        <span class="muted">${Moon.PHASE_NAMES[meta.moon.phase]} · ${meta.principle[0]}</span>
-        <span class="today-hint">${esc(meta.hint)}</span>
-      </section>
-      <section>
-        <span class="eyebrow">Как ты сегодня?</span>
-        <div class="moods">${moods}</div>
-      </section>
-      <section>
-        <label class="eyebrow" for="f-text">Мой день одной строкой · по желанию</label>
-        <input id="f-text" data-field="text" type="text" placeholder="Сегодня я…" value="${esc(data.text)}">
-      </section>
-      <p class="muted small saved" id="saved" data-today="1">${data.mood !== null ? 'Отмечено. Хорошего дня 💛' : 'Одно нажатие, и день отмечен'}</p>
-      <a class="more" href="#/day/${iso}">Открыть день полностью ›</a>
-    </main>`;
-}
-
-async function viewCalendar(ym) {
-  const now = new Date();
-  const [y, m] = ym ? ym.split('-').map(Number) : [now.getFullYear(), now.getMonth() + 1];
-  const first = new Date(y, m - 1, 1, 12);
-  const daysIn = new Date(y, m, 0).getDate();
-  const offset = (first.getDay() + 6) % 7;
-  const todayIso = isoDate(now);
-  const prev = m === 1 ? (y - 1) + '-12' : y + '-' + pad(m - 1);
-  const next = m === 12 ? (y + 1) + '-01' : y + '-' + pad(m + 1);
-  const keys = [];
-  for (let d = 1; d <= daysIn; d++) keys.push('d_' + isoDate(new Date(y, m - 1, d, 12)));
-  const saved = await Store.getMany(keys);
-  const moodOf = (iso) => { try { const v = JSON.parse(saved['d_' + iso] || 'null'); return v && v.mood !== null && v.mood !== undefined ? v.mood : null; } catch (e) { return null; } };
-  let cells = '';
-  for (let i = 0; i < offset; i++) cells += '<span class="cell empty"></span>';
-  for (let d = 1; d <= daysIn; d++) {
-    const date = new Date(y, m - 1, d, 12);
-    const info = Moon.info(date);
-    const iso = isoDate(date);
-    const mood = moodOf(iso);
-    const cls = ['cell', info.phase === 'new' ? 'is-new' : '', info.phase === 'full' ? 'is-full' : '', mood !== null ? 'mood-' + mood : '', iso === todayIso ? 'is-today' : ''].join(' ');
-    const mark = info.phase === 'new' || info.phase === 'full' ? moonIcon(info.phase, 14) : `<small>${info.lunarDay}</small>`;
-    cells += `<a class="${cls}" href="#/day/${iso}"><b>${d}</b>${mark}</a>`;
-  }
-  const principle = Content.principles[m - 1];
-  const events = Moon.events(y).filter((e) => e.date.getFullYear() === y && e.date.getMonth() === m - 1);
-  const evList = events.map((e) => `<li>${moonIcon(e.type, 16)} ${e.type === 'new' ? 'Новолуние' : 'Полнолуние'} · ${e.date.getDate()} ${Content.monthsGen[m - 1]}, ${timeStr(e.date)}</li>`).join('');
-  return `
-    <header class="cover small"><div class="cover-title">${Content.months[m - 1]}</div></header>
-    <main class="page">
-      <div class="month-nav">
-        <a class="icon-btn" href="#/calendar/${prev}" aria-label="Предыдущий месяц">‹</a>
-        <b>${Content.months[m - 1]} ${y}</b>
-        <a class="icon-btn" href="#/calendar/${next}" aria-label="Следующий месяц">›</a>
-      </div>
-      <div class="muted">Принцип месяца: <b>${principle[0]}</b> · ${principle[1]}</div>
-      <div class="weekdays"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
-      <div class="calendar">${cells}</div>
-      <ul class="events">${evList}</ul>
-      <div class="legend">${Content.moods.map((l, i) => `<span><i class="mood-${i}"></i>${l}</span>`).join('')}</div>
-      <p class="muted small">Клетка окрашивается, когда ты отмечаешь состояние. Маленькая цифра это лунный день. Время по твоему часовому поясу.</p>
-    </main>`;
-}
-
+// Один экран дня: и «Сегодня», и любой день из календаря.
 async function viewDay(iso) {
   const date = parseDate(iso);
+  const isToday = iso === todayIso();
   const meta = dayMeta(date);
   const data = await loadDay(iso);
   const wd = date.getDay();
   const ritual = Content.rituals[meta.moon.phase];
 
   const moods = Content.moods.map((label, i) =>
-    `<button type="button" class="chip ${data.mood === i ? 'on' : ''}" data-mood="${i}">${label}</button>`).join('');
-  const spheres = Content.spheres.map((name, si) => {
-    const dots = [1, 2, 3, 4, 5].map((n) =>
-      `<button type="button" class="dot ${data.spheres[si] === n ? 'on' : ''}" data-sphere="${si}" data-val="${n}" aria-label="${name}: ${n}">${n}</button>`).join('');
-    return `<div class="sphere"><span>${name}</span><div class="dots">${dots}</div></div>`;
-  }).join('');
+    `<button type="button" class="mood m${i} ${data.mood === i ? 'on' : ''}" data-mood="${i}"><i></i>${label}</button>`).join('');
 
   const ritualBlock = ritual ? `
     <section class="plaque ${meta.moon.phase}">
@@ -182,49 +114,187 @@ async function viewDay(iso) {
 
   return `
     <header class="cover">
-      <div class="cover-title">${meta.moon.lunarDay}-й лунный день</div>
+      <div class="cover-title">${isToday ? 'БлагоЛуна' : Content.weekdays[wd]}</div>
       ${moonIcon(meta.moon.phase, 44)}
     </header>
     <main class="page" data-day="${iso}">
-      <div>
-        <h1>${Content.weekdays[wd]}, ${date.getDate()} ${Content.monthsGen[date.getMonth()]}</h1>
-        <div class="muted">${Moon.PHASE_NAMES[meta.moon.phase]} · Цикл ${meta.cycle.n} · ${meta.principle[0]}</div>
-      </div>
-      <section class="hint"><span class="eyebrow">Подсказка дня</span><p>${esc(meta.hint)}</p></section>
+      <section class="today-card">
+        <span class="day-date">${isToday ? 'Сегодня, ' : ''}${date.getDate()} ${Content.monthsGen[date.getMonth()]}</span>
+        <span class="day-sub">${Content.weekdays[wd]} · ${meta.moon.lunarDay}-й лунный день · ${Moon.PHASE_NAMES[meta.moon.phase]}</span>
+        <span class="today-hint">${esc(meta.hint)}</span>
+      </section>
       <section>
-        <label class="eyebrow" for="f-text">Мой день одной строкой</label>
+        <span class="eyebrow">${isToday ? 'Как ты сегодня?' : 'Как ты была в этот день?'}</span>
+        <div class="moods">${moods}</div>
+        <p class="wish" id="wish" ${data.mood === null ? 'hidden' : ''}>${data.mood === null ? '' : esc(wishFor(data.mood, date))}</p>
+      </section>
+      <section>
+        <label class="eyebrow" for="f-text">Мой день одной строкой · по желанию</label>
         <input id="f-text" data-field="text" type="text" placeholder="Сегодня я…" value="${esc(data.text)}">
       </section>
-      <section>
-        <span class="eyebrow">Сферы жизни сегодня · от 1 до 5</span>
-        <div class="spheres">${spheres}</div>
-      </section>
-      <section>
-        <span class="eyebrow">Состояние</span>
-        <div class="chips">${moods}</div>
-      </section>
       ${ritualBlock}${satBlock}${sunBlock}
-      <a class="channel" href="${Content.channelUrl}" data-external>Обсудить этот день в канале <span>›</span></a>
-      <p class="muted small saved" id="saved">Всё сохраняется само</p>
+      <p class="privacy" id="saved">🔒 ${PRIVACY}</p>
     </main>`;
 }
 
-// ---------- Сохранение ввода на странице дня ----------
+async function viewCalendar(ym) {
+  const now = new Date();
+  const [y, m] = ym ? ym.split('-').map(Number) : [now.getFullYear(), now.getMonth() + 1];
+  const first = new Date(y, m - 1, 1, 12);
+  const daysIn = new Date(y, m, 0).getDate();
+  const offset = (first.getDay() + 6) % 7;
+  const today = todayIso();
+  const prev = m === 1 ? (y - 1) + '-12' : y + '-' + pad(m - 1);
+  const next = m === 12 ? (y + 1) + '-01' : y + '-' + pad(m + 1);
+  const moods = await monthMoods(y, m);
+  let cells = '';
+  for (let i = 0; i < offset; i++) cells += '<span class="cell empty"></span>';
+  for (let d = 1; d <= daysIn; d++) {
+    const date = new Date(y, m - 1, d, 12);
+    const info = Moon.info(date);
+    const iso = isoDate(date);
+    const mood = moods[iso];
+    const cls = ['cell', info.phase === 'new' ? 'is-new' : '', info.phase === 'full' ? 'is-full' : '', mood !== undefined ? 'mood-' + mood : '', iso === today ? 'is-today' : ''].join(' ');
+    const mark = info.phase === 'new' || info.phase === 'full' ? moonIcon(info.phase, 14) : `<small>${info.lunarDay}</small>`;
+    cells += `<a class="${cls}" href="#/day/${iso}"><b>${d}</b>${mark}</a>`;
+  }
+  const events = Moon.events(y).filter((e) => e.date.getFullYear() === y && e.date.getMonth() === m - 1);
+  const evList = events.map((e) => `<li>${moonIcon(e.type, 16)} ${e.type === 'new' ? 'Новолуние' : 'Полнолуние'} · ${e.date.getDate()} ${Content.monthsGen[m - 1]}, ${timeStr(e.date)}</li>`).join('');
+  return `
+    <header class="cover small"><div class="cover-title">${Content.months[m - 1]}</div></header>
+    <main class="page">
+      <div class="month-nav">
+        <a class="icon-btn" href="#/calendar/${prev}" aria-label="Предыдущий месяц">‹</a>
+        <b>${Content.months[m - 1]} ${y}</b>
+        <a class="icon-btn" href="#/calendar/${next}" aria-label="Следующий месяц">›</a>
+      </div>
+      <div class="weekdays"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
+      <div class="calendar">${cells}</div>
+      <div class="legend">${Content.moods.map((l, i) => `<span><i class="mood-${i}"></i>${l}</span>`).join('')}</div>
+      <ul class="events">${evList}</ul>
+      <p class="muted small">Клетка окрашивается, когда ты отмечаешь состояние. Маленькая цифра это лунный день. Время по твоему часовому поясу.</p>
+    </main>`;
+}
 
-function bindDay(root, iso) {
-  let data = null;
-  const ready = loadDay(iso).then((d) => { data = d; });
-  let timer = null;
-  const persist = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      saveDay(iso, data).then(() => {
-        const el = document.getElementById('saved');
-        if (el && el.dataset.today) el.textContent = data.mood !== null ? 'Отмечено. Хорошего дня 💛' : 'Одно нажатие, и день отмечен';
-        else if (el) { el.textContent = 'Сохранено'; setTimeout(() => { el.textContent = 'Всё сохраняется само'; }, 1500); }
-      });
-    }, 400);
+// Итог года: средний уровень, разброс и сравнение половин года.
+function yearVerdict(all) {
+  const vals = Object.keys(all).sort().map((k) => all[k]);
+  if (vals.length < 14) return null;
+  const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const avg = mean(vals);
+  const sd = Math.sqrt(mean(vals.map((v) => (v - avg) * (v - avg))));
+  const half = Math.floor(vals.length / 2);
+  const share = (v) => vals.filter((x) => x === v).length / vals.length;
+  let key;
+  if (share(0) >= 0.35) key = 'quiet';
+  else if (share(1) >= 0.35 || avg < 1.6) key = 'tired';
+  else if (mean(vals.slice(half)) - mean(vals.slice(0, half)) >= 0.6) key = 'rise';
+  else if (sd >= 1.3) key = 'swing';
+  else if (avg >= 3.3) key = 'shine';
+  else if (avg >= 2.6) key = 'warm';
+  else key = 'even';
+  return Content.verdicts[key];
+}
+
+function wheelSvg(values) {
+  const n = Content.spheres.length, cx = 150, cy = 150, R = 105;
+  const pt = (i, r) => {
+    const a = -Math.PI / 2 + i * 2 * Math.PI / n;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
   };
+  let rings = '';
+  for (let k = 1; k <= 5; k++) rings += `<polygon points="${Content.spheres.map((_, i) => pt(i, R * k / 5).join(',')).join(' ')}" fill="none" stroke="#E9E9E7"/>`;
+  const shape = Content.spheres.map((_, i) => pt(i, R * (values[i] || 0) / 5).join(',')).join(' ');
+  const labels = Content.spheres.map((name, i) => {
+    const [x, y] = pt(i, R + 14);
+    const anchor = x > cx + 5 ? 'start' : x < cx - 5 ? 'end' : 'middle';
+    return `<text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="middle" font-size="12" fill="#6B6A66">${name}</text>`;
+  }).join('');
+  return `<svg viewBox="-50 10 400 280" class="wheel" role="img" aria-label="Колесо баланса">${rings}<polygon points="${shape}" fill="rgba(46,58,102,.18)" stroke="#2E3A66" stroke-width="2"/>${labels}</svg>`;
+}
+
+async function viewYear() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const [year, ...months] = await Promise.all([loadYear(y), ...Array.from({ length: 12 }, (_, i) => monthMoods(y, i + 1))]);
+  const all = Object.assign({}, ...months);
+
+  let rows = '';
+  months.forEach((mm, mi) => {
+    const daysIn = new Date(y, mi + 1, 0).getDate();
+    let cells = '';
+    for (let d = 1; d <= 31; d++) {
+      const v = mm[y + '-' + pad(mi + 1) + '-' + pad(d)];
+      cells += d > daysIn ? '<i class="px off"></i>' : `<i class="px ${v !== undefined ? 'mood-' + v : ''}"></i>`;
+    }
+    rows += `<div class="px-row"><span>${Content.months[mi].slice(0, 3)}</span>${cells}</div>`;
+  });
+
+  const marked = Object.keys(all).length;
+  const counts = Content.moods.map((l, i) => `<span><i class="mood-${i}"></i>${l} <b>${Object.values(all).filter((v) => v === i).length}</b></span>`).join('');
+  const verdict = yearVerdict(all);
+  const verdictBlock = verdict
+    ? `<div class="verdict"><span class="eyebrow">Твой год сейчас</span><b>${verdict.title}</b><p>${verdict.text}</p><p class="muted">💡 ${verdict.tip}</p></div>`
+    : `<p class="muted small">Итог года появится, когда отметишь хотя бы 14 дней. Сейчас отмечено: ${marked}.</p>`;
+
+  const wheelFilled = Object.keys(year.wheel).length === Content.spheres.length;
+  const wheelInputs = Content.spheres.map((name, si) => {
+    const dots = [1, 2, 3, 4, 5].map((v) =>
+      `<button type="button" class="dot ${year.wheel[si] === v ? 'on' : ''}" data-sphere="${si}" data-val="${v}" aria-label="${name}: ${v}">${v}</button>`).join('');
+    return `<div class="sphere"><span>${name}</span><div class="dots">${dots}</div></div>`;
+  }).join('');
+
+  const isDecember = now.getMonth() === 11;
+  const letterBlock = isDecember && year.letter
+    ? `<section class="plaque sat"><span class="eyebrow">Письмо себе, написанное раньше в этом году</span><p class="letter">${esc(year.letter)}</p></section>`
+    : `<section>
+        <label class="eyebrow" for="f-letter">Письмо себе в декабрь</label>
+        <textarea id="f-letter" data-field="letter" rows="4" placeholder="Привет, я из начала года. Я надеюсь, что ты…">${esc(year.letter)}</textarea>
+        <p class="muted small">1 декабря письмо появится здесь, и ты сможешь его перечитать.</p>
+      </section>`;
+
+  return `
+    <header class="cover small"><div class="cover-title">Мой ${y}</div></header>
+    <main class="page" data-year="${y}">
+      ${isDecember ? letterBlock : ''}
+      <section>
+        <label class="eyebrow" for="f-sankalpa">Санкальпа · намерение года</label>
+        <input id="f-sankalpa" data-field="sankalpa" type="text" placeholder="Я живу бережно и в своём ритме…" value="${esc(year.sankalpa)}">
+      </section>
+
+      <section>
+        <span class="eyebrow">Год в пикселях</span>
+        <div class="pixels">${rows}</div>
+        <div class="legend counts">${counts}</div>
+      </section>
+      ${verdictBlock}
+
+      <section>
+        <span class="eyebrow">Колесо баланса · с чего я начинаю</span>
+        ${wheelSvg(year.wheel)}
+        <p class="muted small">${wheelFilled ? 'Это твоя точка отсчёта. Оценки можно поправить ниже.' : 'Оцени каждую сферу от 1 до 5, и колесо нарисуется.'}</p>
+        <div class="spheres">${wheelInputs}</div>
+      </section>
+
+      ${isDecember ? '' : letterBlock}
+      <a class="channel" href="${Content.channelUrl}" data-external>Больше о Луне и ритуалах в нашем канале <span>›</span></a>
+      <p class="privacy" id="saved">🔒 ${PRIVACY}</p>
+    </main>`;
+}
+
+// ---------- Сохранение ввода ----------
+
+// Экран #app один на всё приложение, поэтому слушатели прошлого экрана снимаем при переходе.
+let binding = null;
+
+function bindForm(root, load, save, onChange) {
+  if (binding) binding.abort();
+  binding = new AbortController();
+  const opts = { signal: binding.signal };
+  let data = null;
+  const ready = load().then((d) => { data = d; });
+  let timer = null;
+  const persist = () => { clearTimeout(timer); timer = setTimeout(() => save(data), 400); };
 
   root.addEventListener('click', async (e) => {
     const b = e.target.closest('button');
@@ -236,12 +306,13 @@ function bindDay(root, iso) {
       root.querySelectorAll('[data-mood]').forEach((x) => x.classList.toggle('on', Number(x.dataset.mood) === data.mood));
     } else if (b.dataset.sphere !== undefined) {
       const si = b.dataset.sphere, v = Number(b.dataset.val);
-      data.spheres[si] = data.spheres[si] === v ? undefined : v;
-      root.querySelectorAll(`[data-sphere="${si}"]`).forEach((x) => x.classList.toggle('on', Number(x.dataset.val) === data.spheres[si]));
+      if (data.wheel[si] === v) delete data.wheel[si]; else data.wheel[si] = v;
+      root.querySelectorAll(`[data-sphere="${si}"]`).forEach((x) => x.classList.toggle('on', Number(x.dataset.val) === data.wheel[si]));
     } else return;
     haptic();
+    if (onChange) onChange(data);
     persist();
-  });
+  }, opts);
 
   root.addEventListener('input', async (e) => {
     await ready;
@@ -250,6 +321,23 @@ function bindDay(root, iso) {
     else if (t.dataset.refl !== undefined) data.reflection[Number(t.dataset.refl)] = t.value;
     else return;
     persist();
+  }, opts);
+}
+
+function bindDay(root, iso) {
+  const date = parseDate(iso);
+  bindForm(root, () => loadDay(iso), (d) => saveDay(iso, d), (d) => {
+    const w = document.getElementById('wish');
+    if (!w) return;
+    w.hidden = d.mood === null;
+    w.textContent = d.mood === null ? '' : wishFor(d.mood, date);
+  });
+}
+
+function bindYear(root, y) {
+  bindForm(root, () => loadYear(y), (d) => saveYear(y, d), (d) => {
+    const old = root.querySelector('.wheel');
+    if (old) old.outerHTML = wheelSvg(d.wheel);
   });
 }
 
@@ -261,15 +349,16 @@ const tabs = document.querySelectorAll('.tabbar a');
 async function route() {
   const hash = location.hash || '#/today';
   const [, name, arg] = hash.split('/');
-  let html;
-  if (name === 'day' && arg) html = await viewDay(arg);
-  else if (name === 'calendar') html = await viewCalendar(arg);
-  else html = await viewToday();
-  app.innerHTML = html;
+  const dayIso = name === 'day' && arg ? arg : todayIso();
+  if (name === 'calendar') app.innerHTML = await viewCalendar(arg);
+  else if (name === 'year') app.innerHTML = await viewYear();
+  else app.innerHTML = await viewDay(dayIso);
   window.scrollTo(0, 0);
-  tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === (name || 'today')));
-  if (name === 'day' && arg) bindDay(app, arg);
-  else if (name !== 'calendar') bindDay(app, isoDate(new Date()));
+  const tab = name === 'day' ? 'calendar' : (name || 'today');
+  tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
+  if (name === 'year') bindYear(app, new Date().getFullYear());
+  else if (name !== 'calendar') bindDay(app, dayIso);
+  else if (binding) binding.abort();
   if (tg) {
     if (name === 'day') tg.BackButton.show(); else tg.BackButton.hide();
   }
