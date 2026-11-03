@@ -9,6 +9,15 @@ const Store = {
       try { resolve(localStorage.getItem(key)); } catch (e) { resolve(null); }
     });
   },
+  // Пачкой, чтобы календарь не делал 30 отдельных запросов в облако.
+  getMany(keys) {
+    return new Promise((resolve) => {
+      if (Store.cloud()) return tg.CloudStorage.getItems(keys, (err, v) => resolve(err ? {} : v || {}));
+      const out = {};
+      try { keys.forEach((k) => { out[k] = localStorage.getItem(k); }); } catch (e) { /* приватный режим */ }
+      resolve(out);
+    });
+  },
   set(key, value) {
     return new Promise((resolve) => {
       if (Store.cloud()) return tg.CloudStorage.setItem(key, value, () => resolve());
@@ -60,41 +69,40 @@ const moonIcon = (phase, size) => {
 
 // ---------- Экраны ----------
 
-function viewToday() {
+async function viewToday() {
   const now = new Date();
   now.setHours(12, 0, 0, 0);
   const iso = isoDate(now);
   const meta = dayMeta(now);
-  const pct = Math.round(meta.cycle.day / meta.cycle.len * 100);
+  const data = await loadDay(iso);
+  const moods = Content.moods.map((label, i) =>
+    `<button type="button" class="mood m${i} ${data.mood === i ? 'on' : ''}" data-mood="${i}"><i></i>${label}</button>`).join('');
   return `
     <header class="cover">
       <div class="cover-title">БлагоЛуна</div>
       ${moonIcon(meta.moon.phase, 44)}
     </header>
-    <main class="page">
-      <a class="today-card" href="#/day/${iso}">
+    <main class="page" data-day="${iso}">
+      <section class="today-card">
         <span class="eyebrow">Сегодня · ${now.getDate()} ${Content.monthsGen[now.getMonth()]}</span>
         <span class="today-ld">${meta.moon.lunarDay}-й лунный день</span>
-        <span class="muted">${Moon.PHASE_NAMES[meta.moon.phase]}</span>
+        <span class="muted">${Moon.PHASE_NAMES[meta.moon.phase]} · ${meta.principle[0]}</span>
         <span class="today-hint">${esc(meta.hint)}</span>
-        <span class="btn">Открыть мой день</span>
-      </a>
-      <div class="grid2">
-        <div class="tile">
-          <span class="eyebrow">Принцип месяца</span>
-          <b>${meta.principle[0]}</b>
-          <span class="muted">${meta.principle[1]}</span>
-        </div>
-        <div class="tile">
-          <span class="eyebrow">Цикл ${meta.cycle.n} · ${meta.cycle.name}</span>
-          <b>День ${meta.cycle.day} из ${meta.cycle.len}</b>
-          <span class="bar"><span style="width:${pct}%"></span></span>
-        </div>
-      </div>
+      </section>
+      <section>
+        <span class="eyebrow">Как ты сегодня?</span>
+        <div class="moods">${moods}</div>
+      </section>
+      <section>
+        <label class="eyebrow" for="f-text">Мой день одной строкой · по желанию</label>
+        <input id="f-text" data-field="text" type="text" placeholder="Сегодня я…" value="${esc(data.text)}">
+      </section>
+      <p class="muted small saved" id="saved" data-today="1">${data.mood !== null ? 'Отмечено. Хорошего дня 💛' : 'Одно нажатие, и день отмечен'}</p>
+      <a class="more" href="#/day/${iso}">Открыть день полностью ›</a>
     </main>`;
 }
 
-function viewCalendar(ym) {
+async function viewCalendar(ym) {
   const now = new Date();
   const [y, m] = ym ? ym.split('-').map(Number) : [now.getFullYear(), now.getMonth() + 1];
   const first = new Date(y, m - 1, 1, 12);
@@ -103,13 +111,18 @@ function viewCalendar(ym) {
   const todayIso = isoDate(now);
   const prev = m === 1 ? (y - 1) + '-12' : y + '-' + pad(m - 1);
   const next = m === 12 ? (y + 1) + '-01' : y + '-' + pad(m + 1);
+  const keys = [];
+  for (let d = 1; d <= daysIn; d++) keys.push('d_' + isoDate(new Date(y, m - 1, d, 12)));
+  const saved = await Store.getMany(keys);
+  const moodOf = (iso) => { try { const v = JSON.parse(saved['d_' + iso] || 'null'); return v && v.mood !== null && v.mood !== undefined ? v.mood : null; } catch (e) { return null; } };
   let cells = '';
   for (let i = 0; i < offset; i++) cells += '<span class="cell empty"></span>';
   for (let d = 1; d <= daysIn; d++) {
     const date = new Date(y, m - 1, d, 12);
     const info = Moon.info(date);
     const iso = isoDate(date);
-    const cls = ['cell', info.phase === 'new' ? 'is-new' : '', info.phase === 'full' ? 'is-full' : '', iso === todayIso ? 'is-today' : ''].join(' ');
+    const mood = moodOf(iso);
+    const cls = ['cell', info.phase === 'new' ? 'is-new' : '', info.phase === 'full' ? 'is-full' : '', mood !== null ? 'mood-' + mood : '', iso === todayIso ? 'is-today' : ''].join(' ');
     const mark = info.phase === 'new' || info.phase === 'full' ? moonIcon(info.phase, 14) : `<small>${info.lunarDay}</small>`;
     cells += `<a class="${cls}" href="#/day/${iso}"><b>${d}</b>${mark}</a>`;
   }
@@ -128,7 +141,8 @@ function viewCalendar(ym) {
       <div class="weekdays"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
       <div class="calendar">${cells}</div>
       <ul class="events">${evList}</ul>
-      <p class="muted small">Маленькая цифра в клетке это лунный день. Время по твоему часовому поясу.</p>
+      <div class="legend">${Content.moods.map((l, i) => `<span><i class="mood-${i}"></i>${l}</span>`).join('')}</div>
+      <p class="muted small">Клетка окрашивается, когда ты отмечаешь состояние. Маленькая цифра это лунный день. Время по твоему часовому поясу.</p>
     </main>`;
 }
 
@@ -206,7 +220,8 @@ function bindDay(root, iso) {
     timer = setTimeout(() => {
       saveDay(iso, data).then(() => {
         const el = document.getElementById('saved');
-        if (el) { el.textContent = 'Сохранено'; setTimeout(() => { el.textContent = 'Всё сохраняется само'; }, 1500); }
+        if (el && el.dataset.today) el.textContent = data.mood !== null ? 'Отмечено. Хорошего дня 💛' : 'Одно нажатие, и день отмечен';
+        else if (el) { el.textContent = 'Сохранено'; setTimeout(() => { el.textContent = 'Всё сохраняется само'; }, 1500); }
       });
     }, 400);
   };
@@ -248,12 +263,13 @@ async function route() {
   const [, name, arg] = hash.split('/');
   let html;
   if (name === 'day' && arg) html = await viewDay(arg);
-  else if (name === 'calendar') html = viewCalendar(arg);
-  else html = viewToday();
+  else if (name === 'calendar') html = await viewCalendar(arg);
+  else html = await viewToday();
   app.innerHTML = html;
   window.scrollTo(0, 0);
   tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === (name || 'today')));
   if (name === 'day' && arg) bindDay(app, arg);
+  else if (name !== 'calendar') bindDay(app, isoDate(new Date()));
   if (tg) {
     if (name === 'day') tg.BackButton.show(); else tg.BackButton.hide();
   }

@@ -92,3 +92,22 @@ label { display: block; font-size: 14px; margin: 8px 0 6px; }
 .tabbar a.active { color: var(--indigo); font-weight: 600; }
 .tabbar svg { width: 22px; height: 22px; }
 .tabbar a.soon { opacity: 0.5; pointer-events: none; }
+
+/* Быстрая отметка на «Сегодня» и окраска календаря по состоянию */
+:root { --m0: #D9D7D1; --m1: #9AA6C4; --m2: #B9CDB0; --m3: #6F9A7E; --m4: #E8C872; }
+.moods { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.mood { display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 76px; padding: 10px 2px; border: 1.5px solid var(--line); border-radius: 14px; background: #fff; color: var(--ink); font-size: 12px; cursor: pointer; }
+.mood i { width: 30px; height: 30px; border-radius: 50%; display: block; }
+.mood.on { border-color: var(--indigo); background: var(--blue-soft); font-weight: 600; }
+.m0 i, .mood-0 { background: var(--m0); }
+.m1 i, .mood-1 { background: var(--m1); }
+.m2 i, .mood-2 { background: var(--m2); }
+.m3 i, .mood-3 { background: var(--m3); }
+.m4 i, .mood-4 { background: var(--m4); }
+.cell.mood-0, .cell.mood-1, .cell.mood-2, .cell.mood-3, .cell.mood-4 { border-color: transparent; }
+.cell.mood-1 b, .cell.mood-3 b { color: #fff; }
+.cell.mood-1 small, .cell.mood-3 small { color: rgba(255,255,255,.85); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.more { align-self: center; padding: 12px; font-weight: 600; text-decoration: none; }
