@@ -133,3 +133,17 @@ label { display: block; font-size: 14px; margin: 8px 0 6px; }
 .px.mood-2 { background: var(--m2); }
 .px.mood-3 { background: var(--m3); }
 .px.mood-4 { background: var(--m4); }
+
+/* Знакомство */
+body.no-tabs .tabbar { display: none; }
+body.no-tabs #app { padding-bottom: 0; }
+.onboarding { min-height: 100vh; max-width: 480px; margin: 0 auto; padding: 48px 24px 32px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; background: var(--bg); }
+.onboarding h1 { font-family: 'Amatic SC', cursive; font-size: 44px; color: var(--indigo); margin: 8px 0 0; }
+.onboarding p { margin: 0; font-size: 17px; line-height: 1.5; color: var(--ink); }
+.onboarding .privacy { font-size: 13px; color: var(--muted); }
+.ob-art { width: 160px; height: 160px; border-radius: 50%; background: var(--indigo); display: flex; align-items: center; justify-content: center; margin-top: 12px; }
+.ob-dots { display: flex; gap: 8px; margin-top: auto; padding-top: 18px; }
+.ob-dots i { width: 8px; height: 8px; border-radius: 50%; background: #D9D7D1; }
+.ob-dots i.on { background: var(--indigo); width: 22px; border-radius: 4px; }
+.ob-next { align-self: stretch; justify-content: center; border: none; cursor: pointer; font-size: 16px; }
+.ob-skip { background: none; border: none; color: var(--muted); font-size: 15px; min-height: 44px; cursor: pointer; }

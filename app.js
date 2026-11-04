@@ -282,6 +282,54 @@ async function viewYear() {
     </main>`;
 }
 
+// Знакомство при первом открытии: три экрана, на последнем санкальпа.
+const ONBOARDING = [
+  { title: 'Привет, это БлагоЛуна', text: 'Лунный дневник твоего состояния. Каждый день лунный день и тёплая подсказка, а ты живёшь в своём ритме.', art: 'full' },
+  { title: 'Десять секунд в день', text: 'Отметь, как ты сегодня, одним нажатием. Календарь окрасится в цвет дня, а к концу года сложится твоя мозаика года.', art: 'waxing' },
+  { title: 'Твоя санкальпа', text: 'Санкальпа это намерение на год. Одна фраза в настоящем времени, к которой хочется возвращаться.', art: 'new', field: true }
+];
+
+function viewOnboarding(step) {
+  const s = ONBOARDING[step];
+  const dots = ONBOARDING.map((_, i) => `<i class="${i === step ? 'on' : ''}"></i>`).join('');
+  return `
+    <main class="onboarding">
+      <div class="ob-art">${moonIcon(s.art, 120)}</div>
+      <h1>${s.title}</h1>
+      <p>${s.text}</p>
+      ${s.field ? `<input id="ob-sankalpa" type="text" placeholder="Я живу бережно и в своём ритме…">
+        <p class="privacy">🔒 ${PRIVACY}</p>` : ''}
+      <div class="ob-dots">${dots}</div>
+      <button type="button" class="btn ob-next" data-step="${step}">${s.field ? 'Начать' : 'Дальше'}</button>
+      ${s.field ? '<button type="button" class="ob-skip" data-step="' + step + '">Заполню позже</button>' : ''}
+    </main>`;
+}
+
+async function runOnboarding() {
+  document.body.classList.add('no-tabs');
+  let step = 0;
+  app.innerHTML = viewOnboarding(step);
+  await new Promise((resolve) => {
+    app.onclick = async (e) => {
+      const b = e.target.closest('.ob-next, .ob-skip');
+      if (!b) return;
+      haptic();
+      if (step < ONBOARDING.length - 1) { step++; app.innerHTML = viewOnboarding(step); return; }
+      const input = document.getElementById('ob-sankalpa');
+      if (b.classList.contains('ob-next') && input && input.value.trim()) {
+        const y = new Date().getFullYear();
+        const year = await loadYear(y);
+        year.sankalpa = input.value.trim();
+        await saveYear(y, year);
+      }
+      app.onclick = null;
+      resolve();
+    };
+  });
+  await Store.set('onboarded', '1');
+  document.body.classList.remove('no-tabs');
+}
+
 // ---------- Сохранение ввода ----------
 
 // Экран #app один на всё приложение, поэтому слушатели прошлого экрана снимаем при переходе.
@@ -378,4 +426,7 @@ if (tg) {
 }
 
 window.addEventListener('hashchange', route);
-route();
+Store.get('onboarded').then(async (done) => {
+  if (!done) await runOnboarding();
+  route();
+});
