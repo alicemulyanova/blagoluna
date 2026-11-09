@@ -123,6 +123,7 @@ async function viewDay(iso) {
         <span class="day-sub">${Content.weekdays[wd]} · ${meta.moon.lunarDay}-й лунный день · ${Moon.PHASE_NAMES[meta.moon.phase]}</span>
         <span class="today-hint">${esc(meta.hint)}</span>
       </section>
+      ${isToday ? `<a class="channel" href="${BOT_PROGRAM_URL}" data-external target="_blank" rel="noopener">🌙 Программа на лунный месяц: задание каждое утро <span>›</span></a>` : ''}
       <section>
         <span class="eyebrow">${isToday ? 'Как ты сегодня?' : 'Как ты была в этот день?'}</span>
         <div class="moods">${moods}</div>
@@ -277,7 +278,7 @@ async function viewYear() {
       </section>
 
       ${isDecember ? '' : letterBlock}
-      <a class="channel" href="${Content.channelUrl}" data-external>Больше о Луне и ритуалах в нашем канале <span>›</span></a>
+      <a class="channel" href="${Content.channelUrl}" data-external target="_blank" rel="noopener">Больше о Луне и ритуалах в нашем канале <span>›</span></a>
       <a class="more" href="#/welcome">Как пользоваться БлагоЛуной</a>
       <p class="privacy" id="saved">🔒 ${PRIVACY}</p>
     </main>`;
@@ -287,8 +288,19 @@ async function viewYear() {
 const ONBOARDING = [
   { title: 'Привет, это БлагоЛуна', text: 'Лунный дневник твоего состояния. Каждый день лунный день и тёплая подсказка, а ты живёшь в своём ритме.', art: 'full' },
   { title: 'Десять секунд в день', text: 'Отметь, как ты сегодня, одним нажатием. Календарь окрасится в цвет дня, а к концу года сложится твоя мозаика года.', art: 'waxing' },
+  { title: 'Программа на месяц', text: 'Выбери, над чем поработать в этом лунном месяце. Каждое утро бот пришлёт маленькое задание на 5 минут, в ритме Луны.', art: 'waning', programs: true },
   { title: 'Твоя санкальпа', text: 'Санкальпа это намерение на год. Одна фраза в настоящем времени, к которой хочется возвращаться.', art: 'new', field: true }
 ];
+
+// Программу выбирают в боте: он присылает задания по утрам и хранит выбор.
+const BOT_PROGRAM_URL = 'https://t.me/blagoluna_bot?start=program';
+
+const programCards = () => `
+  <div class="programs">
+    ${Object.values(Programs).map((p) => `<div class="program"><span>${p.emoji}</span><div><b>${p.title}</b><small>${p.promise}</small></div></div>`).join('')}
+    <div class="program own"><span>✍️</span><div><b>Свой запрос</b><small>личный помощник подберёт задания под тебя · 3 дня бесплатно</small></div></div>
+  </div>
+  <a class="more" href="${BOT_PROGRAM_URL}" data-external target="_blank" rel="noopener">Выбрать программу в боте ›</a>`;
 
 function viewOnboarding(step) {
   const s = ONBOARDING[step];
@@ -298,6 +310,7 @@ function viewOnboarding(step) {
       <div class="ob-art">${moonIcon(s.art, 120)}</div>
       <h1>${s.title}</h1>
       <p>${s.text}</p>
+      ${s.programs ? programCards() : ''}
       ${s.field ? `<input id="ob-sankalpa" type="text" placeholder="Я живу бережно и в своём ритме…">
         <p class="privacy">🔒 ${PRIVACY}</p>` : ''}
       <div class="ob-dots">${dots}</div>

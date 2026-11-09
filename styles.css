@@ -147,3 +147,9 @@ body.no-tabs #app { padding-bottom: 0; }
 .ob-dots i.on { background: var(--indigo); width: 22px; border-radius: 4px; }
 .ob-next { align-self: stretch; justify-content: center; border: none; cursor: pointer; font-size: 16px; }
 .ob-skip { background: none; border: none; color: var(--muted); font-size: 15px; min-height: 44px; cursor: pointer; }
+.programs { display: flex; flex-direction: column; gap: 8px; align-self: stretch; text-align: left; }
+.program { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+.program span { font-size: 24px; }
+.program b { display: block; font-size: 15px; }
+.program small { color: var(--muted); font-size: 13px; }
+.program.own { background: var(--gold-soft); border-color: #EED89A; }
