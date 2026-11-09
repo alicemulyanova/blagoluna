@@ -278,6 +278,7 @@ async function viewYear() {
 
       ${isDecember ? '' : letterBlock}
       <a class="channel" href="${Content.channelUrl}" data-external>Больше о Луне и ритуалах в нашем канале <span>›</span></a>
+      <a class="more" href="#/welcome">Как пользоваться БлагоЛуной</a>
       <p class="privacy" id="saved">🔒 ${PRIVACY}</p>
     </main>`;
 }
@@ -397,6 +398,12 @@ const tabs = document.querySelectorAll('.tabbar a');
 async function route() {
   const hash = location.hash || '#/today';
   const [, name, arg] = hash.split('/');
+  if (name === 'welcome') {
+    if (binding) binding.abort();
+    await runOnboarding();
+    location.hash = '#/today';
+    return;
+  }
   const dayIso = name === 'day' && arg ? arg : todayIso();
   if (name === 'calendar') app.innerHTML = await viewCalendar(arg);
   else if (name === 'year') app.innerHTML = await viewYear();
