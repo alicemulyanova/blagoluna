@@ -82,8 +82,6 @@ label { display: block; font-size: 14px; margin: 8px 0 6px; }
 .cell small { font-size: 10px; color: var(--muted); align-self: flex-end; }
 .cell svg { align-self: flex-end; }
 .cell.empty { border: none; }
-.cell.is-new { background: var(--blue-soft); border-color: #C9CFE2; }
-.cell.is-full { background: var(--gold-soft); border-color: #EED89A; }
 .cell.is-today { outline: 2px solid var(--indigo); outline-offset: -1px; }
 .events { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
 .events li { display: flex; align-items: center; gap: 8px; }
@@ -108,6 +106,8 @@ label { display: block; font-size: 14px; margin: 8px 0 6px; }
 .cell.mood-0, .cell.mood-1, .cell.mood-2, .cell.mood-3, .cell.mood-4 { border-color: transparent; }
 .cell.mood-1 b, .cell.mood-3 b { color: #fff; }
 .cell.mood-1 small, .cell.mood-3 small { color: rgba(255,255,255,.85); }
+/* Новолуние и полнолуние обозначает только значок Луны; на окрашенной ячейке обводим его белым, чтобы не сливался */
+.cell[class*="mood-"] svg circle:first-child { stroke: #fff; stroke-width: 3; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
